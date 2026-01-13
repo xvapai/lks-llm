@@ -5,7 +5,7 @@
   gather_facts: true
 
   vars:
-    efs_ip: "YOUR_EFS_IP"
+    efs_ip: "10.0.2.65"
     share_path: "/share"
     llm_data: "/share/llm"
     llm_tmp: "/share/tmp"
