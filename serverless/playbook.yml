@@ -133,17 +133,25 @@
                 - {{ llm_tmp }}:/tmp
 
     # =========================
-    # DOCKER EXECUTION (SAFE)
+    # SAFE DOCKER IMAGE PULL (BACKGROUND)
     # =========================
-    - name: Pull Docker images first (safe for large image)
-      command: docker compose pull
-      args:
-        chdir: "{{ docker_compose_dir }}"
-      register: pull_result
-      retries: 3
-      delay: 60
-      until: pull_result.rc == 0
+    - name: Pull Ollama image in background (SSM safe)
+      shell: |
+        nohup docker pull ollama/ollama:latest \
+        > /var/log/ollama-pull.log 2>&1 &
+      async: 10
+      poll: 0
 
+    - name: Wait until Ollama image is available
+      shell: docker images ollama/ollama | grep ollama
+      register: image_check
+      retries: 60
+      delay: 30
+      until: image_check.rc == 0
+
+    # =========================
+    # DOCKER EXECUTION
+    # =========================
     - name: Run Docker Compose (retry-safe)
       command: docker compose up -d
       args:
