@@ -32,7 +32,7 @@
           - nfs-common
           - docker.io
           - curl
-          - gpg
+          - unzip
         state: present
       when: ansible_os_family == "Debian"
 
@@ -42,17 +42,25 @@
           - nfs-utils
           - docker
           - curl
+          - unzip
         state: present
       when: ansible_os_family == "RedHat"
 
     # =========================
     # DOCKER SETUP
     # =========================
-    - name: Ensure Docker service is enabled and running
+    - name: Enable & start Docker service
       systemd:
         name: docker
         state: started
         enabled: yes
+
+    - name: Wait until Docker daemon is ready
+      shell: docker info
+      register: docker_info
+      retries: 5
+      delay: 10
+      until: docker_info.rc == 0
 
     # =========================
     # NFS / EFS SETUP
@@ -61,8 +69,6 @@
       file:
         path: "{{ share_path }}"
         state: directory
-        owner: root
-        group: root
         mode: "0755"
 
     - name: Mount EFS
@@ -126,7 +132,23 @@
                 - {{ llm_data }}:/root/.ollama
                 - {{ llm_tmp }}:/tmp
 
-    - name: Run Docker Compose
+    # =========================
+    # DOCKER EXECUTION (SAFE)
+    # =========================
+    - name: Pull Docker images first (safe for large image)
+      command: docker compose pull
+      args:
+        chdir: "{{ docker_compose_dir }}"
+      register: pull_result
+      retries: 3
+      delay: 60
+      until: pull_result.rc == 0
+
+    - name: Run Docker Compose (retry-safe)
       command: docker compose up -d
       args:
         chdir: "{{ docker_compose_dir }}"
+      register: compose_result
+      retries: 3
+      delay: 30
+      until: compose_result.rc == 0
