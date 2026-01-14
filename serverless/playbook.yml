@@ -1,162 +1,103 @@
 ---
-- name: Install LLM Worker using Docker + NFS (EFS-ready)
+- name: Install Ollama directly on host (CPU only) and setup NFS
   hosts: all
   become: true
-  gather_facts: true
-
   vars:
-    efs_ip: "10.0.2.65"
+    efs_ip: "YOUR_EFS_IP"
     share_path: "/share"
     llm_data: "/share/llm"
     llm_tmp: "/share/tmp"
-    docker_compose_dir: "/opt/llm"
-
-  pre_tasks:
-    - name: Update package cache (Debian)
-      apt:
-        update_cache: yes
-      when: ansible_os_family == "Debian"
-
-    - name: Update package cache (RedHat/Amazon Linux)
-      dnf:
-        update_cache: yes
-      when: ansible_os_family == "RedHat"
-
   tasks:
-    # =========================
-    # PACKAGE INSTALLATION
-    # =========================
-    - name: Install base packages (Debian/Ubuntu)
+    - name: Update apt cache
       apt:
-        name:
+        update_cache: yes
+      tags: [always]
+
+    - name: Install necessary packages
+      apt:
+        name: 
           - nfs-common
-          - docker.io
           - curl
           - unzip
+          - gpg
         state: present
-      when: ansible_os_family == "Debian"
+      tags: [packages]
 
-    - name: Install base packages (Amazon Linux / RHEL)
-      dnf:
-        name:
-          - nfs-utils
-          - docker
-          - curl
-          - unzip
-        state: present
-      when: ansible_os_family == "RedHat"
-
-    # =========================
-    # DOCKER SETUP
-    # =========================
-    - name: Enable & start Docker service
-      systemd:
-        name: docker
-        state: started
-        enabled: yes
-
-    - name: Wait until Docker daemon is ready
-      shell: docker info
-      register: docker_info
-      retries: 5
-      delay: 10
-      until: docker_info.rc == 0
-
-    # =========================
-    # NFS / EFS SETUP
-    # =========================
-    - name: Create NFS mount directory
+    # NFS Setup
+    - name: Create share directory
       file:
         path: "{{ share_path }}"
         state: directory
-        mode: "0755"
+        owner: root
+        group: root
+        mode: '0755'
+      tags: [nfs]
 
-    - name: Mount EFS
+    - name: Check if NFS is already mounted
+      shell: mount | grep -q '{{ efs_ip }}:/'
+      register: nfs_mounted
+      ignore_errors: true
+      changed_when: false
+      tags: [nfs]
+
+    - name: Mount NFS
       mount:
         src: "{{ efs_ip }}:/"
         path: "{{ share_path }}"
         fstype: nfs4
         opts: defaults,_netdev
         state: mounted
+      when: nfs_mounted.rc != 0
+      tags: [nfs]
 
-    - name: Persist EFS mount in fstab
+    - name: Add mount entry to /etc/fstab
       lineinfile:
         path: /etc/fstab
         line: "{{ efs_ip }}:/ {{ share_path }} nfs4 defaults,_netdev 0 0"
         state: present
+      tags: [nfs]
 
-    - name: Create LLM directories on NFS
+    - name: Ensure NFS mount is accessible
       file:
-        path: "{{ item }}"
+        path: "{{ share_path }}"
         state: directory
-        mode: "0755"
-      loop:
-        - "{{ llm_data }}"
-        - "{{ llm_tmp }}"
+        mode: '0755'
+      tags: [nfs]
 
-    # =========================
-    # DOCKER COMPOSE SETUP
-    # =========================
-    - name: Create Docker CLI plugins directory
-      file:
-        path: /root/.docker/cli-plugins
-        state: directory
-        mode: "0755"
-
-    - name: Install Docker Compose v2
-      get_url:
-        url: https://github.com/docker/compose/releases/download/v2.27.0/docker-compose-linux-x86_64
-        dest: /root/.docker/cli-plugins/docker-compose
-        mode: "0755"
-
-    - name: Create LLM docker-compose directory
-      file:
-        path: "{{ docker_compose_dir }}"
-        state: directory
-        mode: "0755"
-
-    - name: Create docker-compose.yml for LLM
-      copy:
-        dest: "{{ docker_compose_dir }}/docker-compose.yml"
-        mode: "0644"
-        content: |
-          version: "3.8"
-          services:
-            llm:
-              image: ollama/ollama:latest
-              container_name: llm
-              restart: always
-              ports:
-                - "11434:11434"
-              volumes:
-                - {{ llm_data }}:/root/.ollama
-                - {{ llm_tmp }}:/tmp
-
-    # =========================
-    # SAFE DOCKER IMAGE PULL (BACKGROUND)
-    # =========================
-    - name: Pull Ollama image in background (SSM safe)
-      shell: |
-        nohup docker pull ollama/ollama:latest \
-        > /var/log/ollama-pull.log 2>&1 &
-      async: 10
-      poll: 0
-
-    - name: Wait until Ollama image is available
-      shell: docker images ollama/ollama | grep ollama
-      register: image_check
-      retries: 60
-      delay: 30
-      until: image_check.rc == 0
-
-    # =========================
-    # DOCKER EXECUTION
-    # =========================
-    - name: Run Docker Compose (retry-safe)
-      command: docker compose up -d
+    # Install Ollama using official script (CPU only)
+    - name: Install Ollama
+      shell: curl -fsSL https://ollama.com/install.sh | sh
       args:
-        chdir: "{{ docker_compose_dir }}"
-      register: compose_result
-      retries: 3
-      delay: 30
-      until: compose_result.rc == 0
+        executable: /bin/bash
+      tags: [ollama]
+
+    # Run Ollama as a systemd service
+    - name: Create systemd service for Ollama
+      copy:
+        dest: /etc/systemd/system/ollama.service
+        content: |
+          [Unit]
+          Description=Ollama LLM Service (CPU Only)
+          After=network.target
+
+          [Service]
+          Type=simple
+          ExecStart=/usr/local/bin/ollama serve --data {{ llm_data }} --tmp {{ llm_tmp }}
+          Restart=always
+          User=root
+
+          [Install]
+          WantedBy=multi-user.target
+      tags: [ollama]
+
+    - name: Reload systemd
+      systemd:
+        daemon_reload: yes
+      tags: [ollama]
+
+    - name: Enable and start Ollama service
+      systemd:
+        name: ollama
+        state: started
+        enabled: yes
+      tags: [ollama]
