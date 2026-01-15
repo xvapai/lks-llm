@@ -1,27 +1,47 @@
 {
   "compilerOptions": {
+    /* ===== Path Alias (WAJIB) ===== */
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
+
+    /* ===== Target & Runtime ===== */
     "lib": ["dom", "dom.iterable", "esnext"],
-    "allowJs": true,
-    "skipLibCheck": true,
-    "strict": true,
-    "noEmit": true,
-    "esModuleInterop": true,
+    "jsx": "preserve",
+
+    /* ===== Module System ===== */
     "module": "esnext",
     "moduleResolution": "bundler",
+    "esModuleInterop": true,
     "resolveJsonModule": true,
+
+    /* ===== Type Safety ===== */
+    "strict": true,
+    "skipLibCheck": true,
     "isolatedModules": true,
-    "jsx": "preserve",
+    "noEmit": true,
+
+    /* ===== Build Performance ===== */
     "incremental": true,
+
+    /* ===== Next.js Plugin ===== */
     "plugins": [
-      {
-        "name": "next"
-      }
+      { "name": "next" }
     ],
-    "paths": {
-      "@/*": ["./src/*"]
-    }
+
+    /* ===== JavaScript Support ===== */
+    "allowJs": true
   },
-  
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", "src/app/api/chat/route.bk"],
-  "exclude": ["node_modules"]
+
+  "include": [
+    "next-env.d.ts",
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
+
+  "exclude": [
+    "node_modules"
+  ]
 }
