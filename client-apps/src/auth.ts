@@ -6,10 +6,17 @@ class InvalidLoginError extends CredentialsSignin {
    code = "Invalid identifier or password";
 }
 
-const ID_TOKEN_EXPIRATION_MINUTES = parseInt(process.env.NEXT_PUBLUC_COGNITO_ID_TOKEN_EXPIRED || '60', 10);
+const ID_TOKEN_EXPIRATION_MINUTES = parseInt(
+   process.env.NEXT_PUBLIC_COGNITO_ID_TOKEN_EXPIRED || '60', 
+   10
+);
 const ID_TOKEN_EXPIRATION_SECONDS = ID_TOKEN_EXPIRATION_MINUTES * 60;
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+   secret: process.env.AUTH_SECRET, // THIS IS THE CRITICAL FIX
+   session: {
+      strategy: "jwt", // Required for credentials provider
+   },
    providers: [
       Credentials({
          name: "cognito",
@@ -19,10 +26,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
          },
          async authorize(credentials) {
             try {
+               if (!credentials?.email || !credentials?.password) {
+                  return null;
+               }
+
                const response = await cognitoSignIn(
                   credentials.email as string,
                   credentials.password as string
                );
+
                const { RefreshToken, AccessToken, IdToken, ExpiresIn } = response;
 
                if (!RefreshToken || !AccessToken) {
@@ -48,12 +60,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
    ],
    trustHost: true,
    callbacks: {
-      async jwt({ token , user }: any) {
+      async jwt({ token, user }: any) {
          if (user) {
             token.user = user;
          }
 
-         // Check if access token has expired=
+         // Check if access token has expired
          if (
             token.user &&
             (
@@ -72,7 +84,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
                   token.user.idToken = refreshedTokens.idToken;
                   token.user.accessTokenExpires =
                      Date.now() + refreshedTokens.expiresIn * 1000;
-                  token.user.idTokenExpires = Date.now() + ID_TOKEN_EXPIRATION_SECONDS * 1000;
+                  token.user.idTokenExpires = 
+                     Date.now() + ID_TOKEN_EXPIRATION_SECONDS * 1000;
                } else {
                   // If refresh fails, mark the token as expired
                   token.error = "RefreshAccessTokenError";
