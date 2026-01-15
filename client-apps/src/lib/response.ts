@@ -1,46 +1,68 @@
 import { NextResponse } from "next/server";
 
-export interface BodyTypes {
-  status?: string;
-  message?: string;
-  data?: unknown;
-  errField?: unknown;
+interface SuccessResponse {
+   status: "success";
+   message: string;
+   data?: any;
 }
 
-export const ResponseBody = (
-  body: BodyTypes | null | undefined,
-  status = 200
-) => {
-  /* ===== HARD GUARD ===== */
-  if (!body || typeof body !== "object") {
-    body = {
-      status: "error",
-      message: "Invalid response body",
-    };
-  }
+interface ErrorResponse {
+   status: "error";
+   message: string;
+   errField?: any;
+}
 
-  /* ===== NORMALIZE ===== */
-  const normalized = {
-    status: body.status ?? "success",
-    message: body.message ?? "",
-    ...(body.data !== undefined && {
-      data:
-        typeof body.data === "object" && body.data !== null
-          ? body.data
-          : {},
-    }),
-    ...(body.errField !== undefined && {
-      errField:
-        typeof body.errField === "object" && body.errField !== null
-          ? body.errField
-          : {},
-    }),
-  };
+type ApiResponse = SuccessResponse | ErrorResponse;
 
-  return NextResponse.json(normalized, {
-    status,
-    headers: {
-      "Content-Type": "application/json",
-    },
-  });
+export const ResponseBody = (body: ApiResponse, status: number): NextResponse => {
+   return NextResponse.json(body, {
+      headers: {
+         "Content-Type": "application/json",
+      },
+      status,
+   });
+};
+
+// Helper functions for common responses
+export const SuccessResponse = (message: string, data?: any, status: number = 200): NextResponse => {
+   return ResponseBody(
+      {
+         status: "success",
+         message,
+         data,
+      },
+      status
+   );
+};
+
+export const ErrorResponse = (message: string, status: number = 400, errField?: any): NextResponse => {
+   return ResponseBody(
+      {
+         status: "error",
+         message,
+         errField,
+      },
+      status
+   );
+};
+
+// Specific error helpers
+export const BadRequestResponse = (message: string, errField?: any): NextResponse => {
+   return ErrorResponse(message, 400, errField);
+};
+
+export const UnauthorizedResponse = (message: string = "Unauthorized"): NextResponse => {
+   return ErrorResponse(message, 401);
+};
+
+export const ForbiddenResponse = (message: string = "Forbidden"): NextResponse => {
+   return ErrorResponse(message, 403);
+};
+
+export const NotFoundResponse = (message: string = "Not found"): NextResponse => {
+   return ErrorResponse(message, 404);
+};
+
+export const InternalServerErrorResponse = (message: string = "Internal server error"): NextResponse => {
+   return ErrorResponse(message, 500);
 };
