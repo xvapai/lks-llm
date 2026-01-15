@@ -4,43 +4,43 @@ import { setRefreshTokenCookie } from "@/lib/cookies";
 import { ResponseBody } from "@/lib/response";
 
 export async function POST(request: NextRequest) {
-   const { email, password } = await request.json();
+  try {
+    const body = await request.json().catch(() => ({}));
+    const { email, password } = body;
 
-   try {
-      const response = await signIn(email, password);
-      const refreshToken = response.RefreshToken;
-      const accessToken = response.AccessToken;
+    if (!email || !password) {
+      throw new Error("Email and password required");
+    }
 
-      console.log('zxczsdaw', response)
+    const response = await signIn(email, password);
 
-      if (!refreshToken || !accessToken) {
-         throw new Error("Failed to get refresh token or access token");
+    if (!response || typeof response !== "object") {
+      throw new Error("Invalid sign-in response");
+    }
+
+    const refreshToken = response.RefreshToken;
+    const accessToken = response.AccessToken;
+
+    if (!refreshToken || !accessToken) {
+      throw new Error("Missing tokens from Cognito");
+    }
+
+    const user = await getUserInfo(accessToken).catch(() => ({}));
+    await setRefreshTokenCookie(refreshToken);
+
+    return ResponseBody({
+      status: "success",
+      message: "User logged in successfully",
+      data: {
+        user: user ?? {},
+        accessToken,
       }
+    }, 200);
 
-      const user = await getUserInfo(accessToken);
-      await setRefreshTokenCookie(refreshToken);
-
-      const rawBody = {
-         status: "success",
-         message: "User logged in successfully",
-         data: {
-            user,
-            accessToken,
-         }
-      }
-
-      return ResponseBody(rawBody, 200);
-   } catch (error) {
-      if (error instanceof Error) {
-         return ResponseBody({
-            status: "error",
-            message: error.message,
-         }, 400)
-      }
-
-      return ResponseBody({
-         status: "error",
-         message: "Internal server error",
-      }, 500)
-   }
+  } catch (error) {
+    return ResponseBody({
+      status: "error",
+      message: error instanceof Error ? error.message : "Internal server error",
+    }, 400);
+  }
 }
