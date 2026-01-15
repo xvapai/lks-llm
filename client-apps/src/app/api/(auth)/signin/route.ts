@@ -6,90 +6,84 @@ import { ResponseBody } from "@/lib/response";
 export async function POST(request: NextRequest) {
   console.log("=== LOGIN API HIT ===");
 
-  let body: any = null;
-
   try {
-    body = await request.json();
+    const body = await request.json();
     console.log("REQ BODY:", body);
-  } catch (e) {
-    console.error("REQ BODY PARSE ERROR:", e);
-  }
 
-  try {
-    const email = body?.email;
-    const password = body?.password;
-
+    const { email, password } = body ?? {};
     console.log("EMAIL:", email);
     console.log("PASSWORD EXISTS:", !!password);
 
     if (!email || !password) {
-      throw new Error("Email or password missing");
+      return ResponseBody(
+        {
+          status: "error",
+          message: "Email and password are required",
+        },
+        400
+      );
     }
 
     console.log("CALL signIn()");
     const response = await signIn(email, password);
 
-    console.log("SIGNIN RESPONSE TYPE:", typeof response);
     console.log("SIGNIN RESPONSE:", response);
 
-    if (!response) {
-      throw new Error("signIn returned null/undefined");
-    }
+    const accessToken = response?.AccessToken;
+    const refreshToken = response?.RefreshToken;
 
     console.log("TOKENS CHECK");
-    console.log("AccessToken:", !!response.AccessToken);
-    console.log("IdToken:", !!response.IdToken);
-    console.log("RefreshToken:", !!response.RefreshToken);
+    console.log("AccessToken:", !!accessToken);
+    console.log("RefreshToken:", !!refreshToken);
 
-    const accessToken = response.AccessToken;
-    const idToken = response.IdToken;
-    const refreshToken = response.RefreshToken;
-
-    if (!accessToken || !idToken || !refreshToken) {
-      throw new Error("One or more tokens missing");
+    if (!accessToken || !refreshToken) {
+      throw new Error("Failed to get access or refresh token");
     }
 
     console.log("CALL getUserInfo()");
-    let user: any = null;
+    let user = {};
+
     try {
-      user = await getUserInfo(idToken);
-      console.log("USER INFO TYPE:", typeof user);
-      console.log("USER INFO:", user);
-    } catch (e) {
-      console.error("getUserInfo ERROR:", e);
-      user = null;
+      // 🔴 PENTING: HARUS AccessToken, BUKAN IdToken
+      user = await getUserInfo(accessToken);
+    } catch (err) {
+      console.error("getUserInfo ERROR:", err);
+      user = {}; // ⛑️ jangan pernah undefined
     }
 
     console.log("SET REFRESH TOKEN COOKIE");
     await setRefreshTokenCookie(refreshToken);
 
-    const rawBody = {
-      status: "success",
-      message: "User logged in successfully",
-      data: {
-        user: user ?? {},
-        accessToken,
+    return ResponseBody(
+      {
+        status: "success",
+        message: "User logged in successfully",
+        data: {
+          user,
+          accessToken,
+        },
       },
-    };
-
-    console.log("RAW RESPONSE BODY:", rawBody);
-
-    console.log("CALL ResponseBody()");
-    return ResponseBody(rawBody, 200);
-
+      200
+    );
   } catch (error) {
     console.error("LOGIN API ERROR:", error);
 
-    console.log("CALL ResponseBody(ERROR)");
+    if (error instanceof Error) {
+      return ResponseBody(
+        {
+          status: "error",
+          message: error.message,
+        },
+        400
+      );
+    }
+
     return ResponseBody(
       {
         status: "error",
-        message:
-          error instanceof Error
-            ? error.message
-            : "Unknown error",
+        message: "Internal server error",
       },
-      400
+      500
     );
   }
 }
