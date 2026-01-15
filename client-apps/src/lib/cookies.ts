@@ -2,70 +2,85 @@ import { cookies } from "next/headers";
 import { sealData, unsealData } from "iron-session";
 
 const MAX_AGE = 30 * 24 * 60 * 60; // 30 days
-const COOKIE_NAME = "refresh_token";
-
-/* ================= VALIDATION ================= */
-
-if (!process.env.AUTH_SECRET) {
-  throw new Error("AUTH_SECRET is not set in environment variables");
-}
 
 const sealOptions = {
-  password: process.env.AUTH_SECRET,
+   password: process.env.AUTH_SECRET!,
 };
 
-/* ================= INTERNAL ================= */
-
-async function encrypt(data: unknown): Promise<string> {
-  return sealData(data, sealOptions);
+async function encryptData(data: any): Promise<string> {
+   if (!process.env.AUTH_SECRET) {
+      throw new Error("AUTH_SECRET is not set in environment variables");
+   }
+   return sealData(data, { password: process.env.AUTH_SECRET });
 }
 
-async function decrypt<T>(sealed: string): Promise<T | null> {
-  try {
-    return (await unsealData(sealed, sealOptions)) as T;
-  } catch (error) {
-    console.error("Cookie decrypt failed:", error);
-    return null;
-  }
+async function decryptData(sealedData: string): Promise<any> {
+   if (!process.env.AUTH_SECRET) {
+      throw new Error("AUTH_SECRET is not set in environment variables");
+   }
+   try {
+      return await unsealData(sealedData, { password: process.env.AUTH_SECRET });
+   } catch (error) {
+      console.error("Failed to decrypt data:", error);
+      throw new Error("Invalid or corrupted session data");
+   }
 }
-
-/* ================= PUBLIC API ================= */
 
 export async function setRefreshTokenCookie(token: string) {
-  if (!token) {
-    throw new Error("Cannot set empty refresh token");
-  }
+   if (!token) {
+      throw new Error("Token is required");
+   }
 
-  const encrypted = await encrypt(token);
-
-  cookies().set(COOKIE_NAME, encrypted, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: MAX_AGE,
-    path: "/",
-  });
+   try {
+      const encryptedToken = await encryptData(token);
+      const cookieStore = await cookies();
+      
+      cookieStore.set('session_cookies', encryptedToken, {
+         httpOnly: true,
+         secure: process.env.NODE_ENV === "production",
+         maxAge: MAX_AGE,
+         path: "/",
+         sameSite: "lax", // Added for security
+      });
+   } catch (error) {
+      console.error("Failed to set refresh token cookie:", error);
+      throw new Error("Failed to set session cookie");
+   }
 }
 
 export async function getRefreshTokenFromCookie(): Promise<string | null> {
-  const cookie = cookies().get(COOKIE_NAME)?.value;
-  if (!cookie) return null;
+   try {
+      const cookieStore = await cookies();
+      const encryptedToken = cookieStore.get('session_cookies')?.value;
+      
+      if (!encryptedToken) {
+         return null;
+      }
 
-  return decrypt<string>(cookie);
+      const decryptedToken = await decryptData(encryptedToken);
+      return decryptedToken;
+   } catch (error) {
+      console.error("Failed to get refresh token from cookie:", error);
+      // Clear invalid cookie
+      await clearRefreshTokenCookie();
+      return null;
+   }
 }
 
-export function clearRefreshTokenCookie() {
-  cookies().delete(COOKIE_NAME);
+export async function clearRefreshTokenCookie() {
+   try {
+      const cookieStore = await cookies();
+      cookieStore.delete('session_cookies');
+   } catch (error) {
+      console.error("Failed to clear refresh token cookie:", error);
+   }
 }
 
-/* ================= OPTIONAL GENERIC ================= */
-
-export async function encryptGenericData(data: unknown): Promise<string> {
-  return encrypt(data);
+// Utility functions for encrypting/decrypting generic data if needed
+export async function encryptGenericData(data: any): Promise<string> {
+   return encryptData(data);
 }
 
-export async function decryptGenericData<T>(
-  encrypted: string
-): Promise<T | null> {
-  return decrypt<T>(encrypted);
+export async function decryptGenericData(encryptedData: string): Promise<any> {
+   return decryptData(encryptedData);
 }
