@@ -13,26 +13,23 @@ export async function POST(request: NextRequest) {
     }
 
     const response = await signIn(email, password);
-
-    if (!response || typeof response !== "object") {
-      throw new Error("Invalid sign-in response");
-    }
-
+    
     const refreshToken = response.RefreshToken;
     const accessToken = response.AccessToken;
-
-    if (!refreshToken || !accessToken) {
-      throw new Error("Missing tokens from Cognito");
+    const idToken = response.IdToken;
+    
+    if (!refreshToken || !accessToken || !idToken) {
+      throw new Error("Missing Cognito tokens");
     }
-
-    const user = await getUserInfo(accessToken).catch(() => ({}));
+    
+    const user = getUserInfo(idToken); // 🔥 FIX DI SINI
     await setRefreshTokenCookie(refreshToken);
-
+    
     return ResponseBody({
       status: "success",
       message: "User logged in successfully",
       data: {
-        user: user ?? {},
+        user,
         accessToken,
       }
     }, 200);
