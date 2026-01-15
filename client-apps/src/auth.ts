@@ -2,18 +2,11 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import type { NextAuthConfig } from "next-auth";
 
-/**
- * VALIDASI ENV
- * Penting: Amplify kadang build tanpa inject env → ini mencegah silent error
- */
 if (!process.env.AUTH_SECRET) {
-  throw new Error("AUTH_SECRET is not set. Please define it in Amplify Environment Variables.");
+  throw new Error("AUTH_SECRET is not set");
 }
 
-/**
- * CONFIG AUTH
- */
-export const authConfig: NextAuthConfig = {
+const authConfig: NextAuthConfig = {
   secret: process.env.AUTH_SECRET,
 
   session: {
@@ -27,26 +20,19 @@ export const authConfig: NextAuthConfig = {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
       },
-
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) {
           return null;
         }
 
-        /**
-         * ⚠️ CONTOH LOGIC SAJA
-         * Ganti dengan:
-         * - API call ke backend
-         * - DB query
-         */
         if (
           credentials.email === "admin@example.com" &&
           credentials.password === "password123"
         ) {
           return {
             id: "1",
-            name: "Admin",
             email: "admin@example.com",
+            name: "Admin",
           };
         }
 
@@ -55,36 +41,15 @@ export const authConfig: NextAuthConfig = {
     }),
   ],
 
-  pages: {
-    signIn: "/login",
-    error: "/auth/error",
-  },
-
-  callbacks: {
-    async jwt({ token, user }) {
-      if (user) {
-        token.id = user.id;
-      }
-      return token;
-    },
-
-    async session({ session, token }) {
-      if (session.user && token.id) {
-        session.user.id = token.id as string;
-      }
-      return session;
-    },
-  },
-
-  trustHost: true, // ⬅️ WAJIB untuk Amplify / serverless
+  trustHost: true,
 };
 
-/**
- * EXPORT HANDLER
- */
-export const {
-  handlers: { GET, POST },
-  auth,
-  signIn,
-  signOut,
-} = NextAuth(authConfig);
+const handler = NextAuth(authConfig);
+
+export const GET = handler;
+export const POST = handler;
+
+// Optional exports
+export const auth = handler.auth;
+export const signIn = handler.signIn;
+export const signOut = handler.signOut;
