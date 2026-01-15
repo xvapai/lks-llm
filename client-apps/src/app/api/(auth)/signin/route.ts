@@ -4,86 +4,75 @@ import { setRefreshTokenCookie } from "@/lib/cookies";
 import { ResponseBody } from "@/lib/response";
 
 export async function POST(request: NextRequest) {
-  console.log("=== LOGIN API HIT ===");
+   try {
+      const body = await request.json();
+      const { email, password } = body;
 
-  try {
-    const body = await request.json();
-    console.log("REQ BODY:", body);
+      // Validate input
+      if (!email || !password) {
+         return ResponseBody({
+            status: "error",
+            message: "Email and password are required",
+         }, 400);
+      }
 
-    const { email, password } = body ?? {};
-    console.log("EMAIL:", email);
-    console.log("PASSWORD EXISTS:", !!password);
+      const response = await signIn(email, password);
+      
+      // Check if response exists
+      if (!response) {
+         return ResponseBody({
+            status: "error",
+            message: "Authentication failed - no response from sign in",
+         }, 401);
+      }
 
-    if (!email || !password) {
-      return ResponseBody(
-        {
-          status: "error",
-          message: "Email and password are required",
-        },
-        400
-      );
-    }
+      console.log('Sign in response:', response);
 
-    console.log("CALL signIn()");
-    const response = await signIn(email, password);
+      const refreshToken = response.RefreshToken;
+      const accessToken = response.AccessToken;
 
-    console.log("SIGNIN RESPONSE:", response);
+      if (!refreshToken || !accessToken) {
+         return ResponseBody({
+            status: "error",
+            message: "Authentication failed - missing tokens",
+         }, 401);
+      }
 
-    const accessToken = response?.AccessToken;
-    const refreshToken = response?.RefreshToken;
+      const user = await getUserInfo(accessToken);
+      
+      if (!user) {
+         return ResponseBody({
+            status: "error",
+            message: "Failed to retrieve user information",
+         }, 500);
+      }
 
-    console.log("TOKENS CHECK");
-    console.log("AccessToken:", !!accessToken);
-    console.log("RefreshToken:", !!refreshToken);
+      await setRefreshTokenCookie(refreshToken);
 
-    if (!accessToken || !refreshToken) {
-      throw new Error("Failed to get access or refresh token");
-    }
+      const rawBody = {
+         status: "success",
+         message: "User logged in successfully",
+         data: {
+            user,
+            accessToken,
+         }
+      };
 
-    console.log("CALL getUserInfo()");
-    let user = {};
+      return ResponseBody(rawBody, 200);
 
-    try {
-      // 🔴 PENTING: HARUS AccessToken, BUKAN IdToken
-      user = await getUserInfo(accessToken);
-    } catch (err) {
-      console.error("getUserInfo ERROR:", err);
-      user = {}; // ⛑️ jangan pernah undefined
-    }
+   } catch (error) {
+      console.error('Login error:', error);
+      
+      if (error instanceof Error) {
+         return ResponseBody({
+            status: "error",
+            message: error.message,
+         }, 400);
+      }
 
-    console.log("SET REFRESH TOKEN COOKIE");
-    await setRefreshTokenCookie(refreshToken);
-
-    return ResponseBody(
-      {
-        status: "success",
-        message: "User logged in successfully",
-        data: {
-          user,
-          accessToken,
-        },
-      },
-      200
-    );
-  } catch (error) {
-    console.error("LOGIN API ERROR:", error);
-
-    if (error instanceof Error) {
-      return ResponseBody(
-        {
-          status: "error",
-          message: error.message,
-        },
-        400
-      );
-    }
-
-    return ResponseBody(
-      {
-        status: "error",
-        message: "Internal server error",
-      },
-      500
-    );
-  }
+      return ResponseBody({
+         status: "error",
+         message: "Internal server error",
+      }, 500);
+   }
 }
