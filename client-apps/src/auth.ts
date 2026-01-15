@@ -2,6 +2,14 @@ import NextAuth, { CredentialsSignin } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { signIn as cognitoSignIn, getUserInfo, refreshAccessToken } from "@/lib/cognito";
 
+// DEBUG: Log environment variables
+console.log("=== AUTH.TS DEBUG ===");
+console.log("AUTH_SECRET exists:", !!process.env.AUTH_SECRET);
+console.log("AUTH_SECRET length:", process.env.AUTH_SECRET?.length);
+console.log("NEXTAUTH_SECRET exists:", !!process.env.NEXTAUTH_SECRET);
+console.log("All env keys:", Object.keys(process.env).filter(k => k.includes('SECRET')));
+console.log("====================");
+
 class InvalidLoginError extends CredentialsSignin {
    code = "Invalid identifier or password";
 }
@@ -12,10 +20,19 @@ const ID_TOKEN_EXPIRATION_MINUTES = parseInt(
 );
 const ID_TOKEN_EXPIRATION_SECONDS = ID_TOKEN_EXPIRATION_MINUTES * 60;
 
+// Try multiple secret sources as fallback
+const authSecret = process.env.AUTH_SECRET || 
+                   process.env.NEXTAUTH_SECRET || 
+                   process.env.AUTH_SECRET_KEY;
+
+if (!authSecret) {
+   console.error("CRITICAL: No AUTH_SECRET found in environment!");
+}
+
 export const { handlers, signIn, signOut, auth } = NextAuth({
-   secret: process.env.AUTH_SECRET, // THIS IS THE CRITICAL FIX
+   secret: authSecret,
    session: {
-      strategy: "jwt", // Required for credentials provider
+      strategy: "jwt",
    },
    providers: [
       Credentials({
@@ -65,7 +82,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             token.user = user;
          }
 
-         // Check if access token has expired
          if (
             token.user &&
             (
@@ -74,7 +90,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             )
          ) {
             try {
-               // Attempt to refresh the token
                const refreshedTokens = await refreshAccessToken(
                   token.user.refreshToken
                );
@@ -87,7 +102,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
                   token.user.idTokenExpires = 
                      Date.now() + ID_TOKEN_EXPIRATION_SECONDS * 1000;
                } else {
-                  // If refresh fails, mark the token as expired
                   token.error = "RefreshAccessTokenError";
                }
             } catch (error) {
