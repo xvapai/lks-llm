@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { SignUpCommand } from "@aws-sdk/client-cognito-identity-provider";
 import cognitoClient from "@/lib/cognito";
 import { z } from "zod";
@@ -28,6 +28,16 @@ export async function POST(request: NextRequest) {
       const validatedData = signUpSchema.parse(body);
       const { fullName, email, password } = validatedData;
 
+      if (!process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID) {
+         return ResponseBody(
+            {
+               status: "error" as const,
+               message: "Cognito client configuration is missing",
+            },
+            500
+         );
+      }
+
       const command = new SignUpCommand({
          ClientId: process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID,
          Username: email,
@@ -46,26 +56,66 @@ export async function POST(request: NextRequest) {
 
       await cognitoClient.send(command);
 
-      const resBody = {
-         status: "success",
-         message: "User created successfully",
-      };
-
-      return ResponseBody(resBody, 200);
+      return ResponseBody(
+         {
+            status: "success" as const,
+            message: "User created successfully. Please check your email to verify your account.",
+         },
+         201
+      );
    } catch (error) {
+      console.error("Sign up error:", error);
+
       if (error instanceof z.ZodError) {
          const errField: Record<string, string> = {};
          error.errors.forEach((err) => {
             errField[err.path.join(".")] = err.message;
          });
-         return ResponseBody({ status: "error", message: "Validation error", errField }, 400);
+         return ResponseBody(
+            {
+               status: "error" as const,
+               message: "Validation error",
+               errField,
+            },
+            400
+         );
       }
 
-      const errBody = {
-         status: "error",
-         message: (error as Error).message,
-      };
+      // Handle Cognito-specific errors
+      if (error instanceof Error) {
+         let message = error.message;
+         let status = 400;
 
-      return ResponseBody(errBody, 400);
+         // Map common Cognito errors to user-friendly messages
+         if (error.name === "UsernameExistsException") {
+            message = "An account with this email already exists";
+         } else if (error.name === "InvalidPasswordException") {
+            message = "Password does not meet requirements";
+         } else if (error.name === "InvalidParameterException") {
+            message = "Invalid input parameters";
+         } else if (error.name === "TooManyRequestsException") {
+            message = "Too many requests. Please try again later";
+            status = 429;
+         } else if (error.name === "LimitExceededException") {
+            message = "Rate limit exceeded. Please try again later";
+            status = 429;
+         }
+
+         return ResponseBody(
+            {
+               status: "error" as const,
+               message,
+            },
+            status
+         );
+      }
+
+      return ResponseBody(
+         {
+            status: "error" as const,
+            message: "An unexpected error occurred during sign up",
+         },
+         500
+      );
    }
 }
