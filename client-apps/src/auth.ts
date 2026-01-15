@@ -1,6 +1,6 @@
 import NextAuth from "next-auth"
 import Credentials from "next-auth/providers/credentials"
-import { cognitoSignIn } from "@/lib/cognito"
+import cognitoSignIn from "@/lib/cognito"
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
