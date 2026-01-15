@@ -1,151 +1,174 @@
 import {
-  CognitoIdentityProviderClient,
-  GetUserCommand,
-  InitiateAuthCommand,
-  InitiateAuthCommandOutput,
-  AttributeType,
-  ForgotPasswordCommand,
-  GlobalSignOutCommand,
+   CognitoIdentityProviderClient,
+   GetUserCommand,
+   InitiateAuthCommand,
+   InitiateAuthCommandOutput,
+   AttributeType,
+   ForgotPasswordCommand,
+   GlobalSignOutCommand,
 } from "@aws-sdk/client-cognito-identity-provider";
 
 const cognitoClient = new CognitoIdentityProviderClient({
-  region: process.env.AWS_REGION || "us-east-1",
+   region: process.env.AWS_REGION || "us-east-1",
 });
 
-/* ================= TYPES ================= */
-
-export interface RefreshTokenResult {
-  accessToken: string;
-  expiresIn: number;
-  idToken: string;
+interface RefreshTokenResult {
+   accessToken: string;
+   expiresIn: number;
+   idToken: string;
 }
 
-export interface UserInfo {
-  id: string;
-  email: string;
-  name: string;
+interface UserInfo {
+   name: string;
+   email: string;
+   id: string;
 }
 
-/* ================= HELPERS ================= */
+interface SignInResult {
+   AccessToken: string;
+   RefreshToken: string;
+   IdToken: string;
+   ExpiresIn: number;
+}
 
-const getAttr = (
-  attrs: AttributeType[] | undefined,
-  name: string
-): string => {
-  return attrs?.find((a) => a.Name === name)?.Value ?? "";
+export type { CognitoIdentityProviderClient };
+export default cognitoClient;
+
+export const getUserInfo = async (accessToken: string): Promise<UserInfo> => {
+   try {
+      const command = new GetUserCommand({
+         AccessToken: accessToken,
+      });
+      const response = await cognitoClient.send(command);
+      
+      if (!response.UserAttributes) {
+         throw new Error("User attributes not found in the response");
+      }
+
+      const getAttribute = (name: string): string => {
+         return (
+            response.UserAttributes?.find(
+               (attr: AttributeType) => attr.Name === name
+            )?.Value || ""
+         );
+      };
+
+      return {
+         name: getAttribute("name"),
+         email: getAttribute("email"),
+         id: getAttribute("sub"),
+      };
+   } catch (error) {
+      throw error;
+   }
 };
-
-/* ================= AUTH ================= */
-
-export const signIn = async (email: string, password: string) => {
-  if (!process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID) {
-    throw new Error("COGNITO_CLIENT_ID is not set");
-  }
-
-  const command = new InitiateAuthCommand({
-    AuthFlow: "USER_PASSWORD_AUTH",
-    ClientId: process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID,
-    AuthParameters: {
-      USERNAME: email,
-      PASSWORD: password,
-    },
-  });
-
-  const response = await cognitoClient.send(command);
-
-  if (!response.AuthenticationResult) {
-    throw new Error("Authentication failed");
-  }
-
-  return response.AuthenticationResult;
-};
-
-/* ================= USER ================= */
-
-export const getUserInfo = async (
-  accessToken: string
-): Promise<UserInfo> => {
-  if (!accessToken) {
-    console.warn("getUserInfo called without accessToken");
-    return { id: "", email: "", name: "" };
-  }
-
-  try {
-    const command = new GetUserCommand({
-      AccessToken: accessToken,
-    });
-
-    const response = await cognitoClient.send(command);
-
-    return {
-      id: getAttr(response.UserAttributes, "sub"),
-      email: getAttr(response.UserAttributes, "email"),
-      name: getAttr(response.UserAttributes, "name"),
-    };
-  } catch (error) {
-    console.error("getUserInfo error:", error);
-    return { id: "", email: "", name: "" }; // ⛑️ NEVER throw
-  }
-};
-
-/* ================= REFRESH ================= */
 
 export const refreshAccessToken = async (
-  refreshToken: string
+   refreshToken: string
 ): Promise<RefreshTokenResult> => {
-  if (!process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID) {
-    throw new Error("COGNITO_CLIENT_ID is not set");
-  }
+   if (!process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID) {
+      console.error("COGNITO_CLIENT_ID is not set in environment variables");
+      throw new Error("COGNITO_CLIENT_ID is not set in environment variables");
+   }
 
-  const command = new InitiateAuthCommand({
-    AuthFlow: "REFRESH_TOKEN_AUTH",
-    ClientId: process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID,
-    AuthParameters: {
-      REFRESH_TOKEN: refreshToken,
-    },
-  });
+   try {
+      const command = new InitiateAuthCommand({
+         AuthFlow: "REFRESH_TOKEN_AUTH",
+         ClientId: process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID,
+         AuthParameters: {
+            REFRESH_TOKEN: refreshToken,
+         },
+      });
 
-  const response: InitiateAuthCommandOutput =
-    await cognitoClient.send(command);
+      const response: InitiateAuthCommandOutput = await cognitoClient.send(
+         command
+      );
 
-  const result = response.AuthenticationResult;
+      if (
+         !response.AuthenticationResult?.AccessToken ||
+         !response.AuthenticationResult.ExpiresIn ||
+         !response.AuthenticationResult.IdToken
+      ) {
+         throw new Error("Invalid response from Cognito");
+      }
 
-  if (!result?.AccessToken || !result.ExpiresIn || !result.IdToken) {
-    throw new Error("Invalid refresh token response");
-  }
-
-  return {
-    accessToken: result.AccessToken,
-    expiresIn: result.ExpiresIn,
-    idToken: result.IdToken,
-  };
+      return {
+         accessToken: response.AuthenticationResult.AccessToken,
+         expiresIn: response.AuthenticationResult.ExpiresIn,
+         idToken: response.AuthenticationResult.IdToken,
+      };
+   } catch (error) {
+      console.error("Refresh token error:", error);
+      throw error;
+   }
 };
 
-/* ================= PASSWORD ================= */
-
-export const forgotPassword = async (username: string) => {
-  if (!process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID) {
-    throw new Error("COGNITO_CLIENT_ID is not set");
-  }
-
-  const command = new ForgotPasswordCommand({
-    ClientId: process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID,
-    Username: username,
-  });
-
-  await cognitoClient.send(command);
+export const forgotPassword = async (username: string): Promise<any> => {
+   try {
+      const command = new ForgotPasswordCommand({
+         ClientId: process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID, // Fixed typo: NET_PUBLIC -> NEXT_PUBLIC
+         Username: username,
+      });
+      await cognitoClient.send(command);
+   } catch (error) {
+      console.error("Forgot password error: ", error);
+      throw error;
+   }
 };
 
-/* ================= SIGN OUT ================= */
+export const signIn = async (email: string, password: string): Promise<SignInResult> => {
+   if (!process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID) {
+      throw new Error("COGNITO_CLIENT_ID is not set in environment variables");
+   }
 
-export const signOut = async (accessToken: string) => {
-  if (!accessToken) return;
+   try {
+      const command = new InitiateAuthCommand({
+         AuthFlow: "USER_PASSWORD_AUTH",
+         ClientId: process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID,
+         AuthParameters: {
+            USERNAME: email,
+            PASSWORD: password,
+         },
+      });
 
-  const command = new GlobalSignOutCommand({
-    AccessToken: accessToken,
-  });
+      const response = await cognitoClient.send(command);
 
-  await cognitoClient.send(command);
+      // Check if AuthenticationResult exists
+      if (!response.AuthenticationResult) {
+         // Handle cases where additional challenges are required (MFA, etc.)
+         if (response.ChallengeName) {
+            throw new Error(`Authentication requires additional step: ${response.ChallengeName}`);
+         }
+         throw new Error("Authentication failed - no result returned");
+      }
+
+      const { AccessToken, RefreshToken, IdToken, ExpiresIn } = response.AuthenticationResult;
+
+      // Validate all required tokens are present
+      if (!AccessToken || !RefreshToken || !IdToken) {
+         throw new Error("Authentication failed - missing required tokens");
+      }
+
+      return {
+         AccessToken,
+         RefreshToken,
+         IdToken,
+         ExpiresIn: ExpiresIn || 3600,
+      };
+   } catch (error) {
+      console.error("Sign in error:", error);
+      throw error;
+   }
 };
 
-export default cognitoClient;
+export const signOut = async (accessToken: string): Promise<any> => {
+   try {
+      const command = new GlobalSignOutCommand({
+         AccessToken: accessToken,
+      });
+      await cognitoClient.send(command);
+   } catch (error) {
+      console.error("Sign out error:", error);
+      throw error;
+   }
+};
